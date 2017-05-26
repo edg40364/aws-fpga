@@ -13,7 +13,7 @@
 // implied. See the License for the specific language governing permissions and
 // limitations under the License.
 
-module cl_hello_world 
+module cl_hello_world
 
 (
    `include "cl_ports.vh" // Fixed port definition
@@ -86,28 +86,28 @@ always_ff @(negedge rst_main_n or posedge clk_main_a0)
 // PCIe OCL AXI-L (SH to CL) Timing Flops
 //-------------------------------------------------
 
-  // Write address                                                                                                              
+  // Write address
   logic        sh_ocl_awvalid_q;
   logic [31:0] sh_ocl_awaddr_q;
   logic        ocl_sh_awready_q;
-                                                                                                                              
-  // Write data                                                                                                                
+
+  // Write data
   logic        sh_ocl_wvalid_q;
   logic [31:0] sh_ocl_wdata_q;
   logic [ 3:0] sh_ocl_wstrb_q;
   logic        ocl_sh_wready_q;
-                                                                                                                              
-  // Write response                                                                                                            
+
+  // Write response
   logic        ocl_sh_bvalid_q;
   logic [ 1:0] ocl_sh_bresp_q;
   logic        sh_ocl_bready_q;
-                                                                                                                              
-  // Read address                                                                                                              
+
+  // Read address
   logic        sh_ocl_arvalid_q;
   logic [31:0] sh_ocl_araddr_q;
   logic        ocl_sh_arready_q;
-                                                                                                                              
-  // Read data/response                                                                                                        
+
+  // Read data/response
   logic        ocl_sh_rvalid_q;
   logic [31:0] ocl_sh_rdata_q;
   logic [ 1:0] ocl_sh_rresp_q;
@@ -154,150 +154,38 @@ always_ff @(negedge rst_main_n or posedge clk_main_a0)
    .m_axi_rready  (sh_ocl_rready_q)
   );
 
-//--------------------------------------------------------------
-// PCIe OCL AXI-L Slave Accesses (accesses from PCIe AppPF BAR0)
-//--------------------------------------------------------------
-// Only supports single-beat accesses.
+  logic  user_reset;
+  assign user_reset = ~rst_main_n_sync;
 
-   logic        awvalid;
-   logic [31:0] awaddr;
-   logic        wvalid;
-   logic [31:0] wdata;
-   logic [3:0]  wstrb;
-   logic        bready;
-   logic        arvalid;
-   logic [31:0] araddr;
-   logic        rready;
-
-   logic        awready;
-   logic        wready;
-   logic        bvalid;
-   logic [1:0]  bresp;
-   logic        arready;
-   logic        rvalid;
-   logic [31:0] rdata;
-   logic [1:0]  rresp;
-
-   // Inputs
-   assign awvalid         = sh_ocl_awvalid_q;
-   assign awaddr[31:0]    = sh_ocl_awaddr_q;
-   assign wvalid          = sh_ocl_wvalid_q;
-   assign wdata[31:0]     = sh_ocl_wdata_q;
-   assign wstrb[3:0]      = sh_ocl_wstrb_q;
-   assign bready          = sh_ocl_bready_q;
-   assign arvalid         = sh_ocl_arvalid_q;
-   assign araddr[31:0]    = sh_ocl_araddr_q;
-   assign rready          = sh_ocl_rready_q;
-
-   // Outputs
-   assign ocl_sh_awready_q = awready;
-   assign ocl_sh_wready_q  = wready;
-   assign ocl_sh_bvalid_q  = bvalid;
-   assign ocl_sh_bresp_q   = bresp[1:0];
-   assign ocl_sh_arready_q = arready;
-   assign ocl_sh_rvalid_q  = rvalid;
-   assign ocl_sh_rdata_q   = rdata;
-   assign ocl_sh_rresp_q   = rresp[1:0];
-
-// Write Request
-logic        wr_active;
-logic [31:0] wr_addr;
-
-always_ff @(posedge clk_main_a0)
-  if (!rst_main_n_sync) begin
-     wr_active <= 0;
-     wr_addr   <= 0;
-  end
-  else begin
-     wr_active <=  wr_active && bvalid  && bready ? 1'b0     :
-                  ~wr_active && awvalid           ? 1'b1     :
-                                                    wr_active;
-     wr_addr <= awvalid && ~wr_active ? awaddr : wr_addr     ;
-  end
-
-assign awready = ~wr_active;
-assign wready  =  wr_active && wvalid;
-
-// Write Response
-always_ff @(posedge clk_main_a0)
-  if (!rst_main_n_sync) 
-    bvalid <= 0;
-  else
-    bvalid <=  bvalid &&  bready           ? 1'b0  : 
-                         ~bvalid && wready ? 1'b1  :
-                                             bvalid;
-assign bresp = 0;
-
-// Read Request
-always_ff @(posedge clk_main_a0)
-   if (!rst_main_n_sync) begin
-      arvalid_q <= 0;
-      araddr_q  <= 0;
-   end
-   else begin
-      arvalid_q <= arvalid;
-      araddr_q  <= arvalid ? araddr : araddr_q;
-   end
-
-assign arready = !arvalid_q && !rvalid;
-
-// Read Response
-always_ff @(posedge clk_main_a0)
-   if (!rst_main_n_sync)
-   begin
-      rvalid <= 0;
-      rdata  <= 0;
-      rresp  <= 0;
-   end
-   else if (rvalid && rready)
-   begin
-      rvalid <= 0;
-      rdata  <= 0;
-      rresp  <= 0;
-   end
-   else if (arvalid_q) 
-   begin
-      rvalid <= 1;
-      rdata  <= (araddr_q == `HELLO_WORLD_REG_ADDR) ? hello_world_q_byte_swapped[31:0]:
-                (araddr_q == `VLED_REG_ADDR       ) ? {16'b0,vled_q[15:0]            }:
-                                                      `UNIMPLEMENTED_REG_VALUE        ;
-      rresp  <= 0;
-   end
-
-//-------------------------------------------------
-// Hello World Register
-//-------------------------------------------------
-// When read it, returns the byte-flipped value.
-
-always_ff @(posedge clk_main_a0)
-   if (!rst_main_n_sync) begin                    // Reset
-      hello_world_q[31:0] <= 32'h0000_0000;
-   end
-   else if (wready & (wr_addr == `HELLO_WORLD_REG_ADDR)) begin  
-      hello_world_q[31:0] <= wdata[31:0];
-   end
-   else begin                                // Hold Value
-      hello_world_q[31:0] <= hello_world_q[31:0];
-   end
-
-assign hello_world_q_byte_swapped[31:0] = {hello_world_q[7:0],   hello_world_q[15:8],
-                                           hello_world_q[23:16], hello_world_q[31:24]};
-
-//-------------------------------------------------
-// Virtual LED Register
-//-------------------------------------------------
-// Flop/synchronize interface signals
-always_ff @(posedge clk_main_a0)
-   if (!rst_main_n_sync) begin                    // Reset
-      sh_cl_status_vdip_q[15:0]  <= 16'h0000;
-      sh_cl_status_vdip_q2[15:0] <= 16'h0000;
-      cl_sh_status_vled[15:0]    <= 16'h0000;
-   end
-   else begin
-      sh_cl_status_vdip_q[15:0]  <= sh_cl_status_vdip[15:0];
-      sh_cl_status_vdip_q2[15:0] <= sh_cl_status_vdip_q[15:0];
-      cl_sh_status_vled[15:0]    <= pre_cl_sh_status_vled[15:0];
-   end
+  wrapped_axi_ram #(
+    .addr_bits(12)
+  )
+  dut(
+    .clk(clk_main_a0),
+    .reset(user_reset),
+    // AXI Master Write Address
+    .axi_awvalid(sh_ocl_awvalid_q),
+    .axi_awaddr(sh_ocl_awaddr_q),
+    .axi_awready(ocl_sh_awready_q),
+    // AXI Master Write Data
+    .axi_wvalid(sh_ocl_wvalid_q),
+    .axi_wdata(sh_ocl_wdata_q),
+    .axi_wstrb(sh_ocl_wstrb_q),
+    .axi_wready(ocl_sh_wready_q),
+    // AXI Master Write Response
+    .axi_bvalid(ocl_sh_bvalid_q),
+    .axi_bresp(ocl_sh_bresp_q),
+    .axi_bready(sh_ocl_bready_q),
+    // AXI Master Read Address
+    .axi_arvalid(sh_ocl_arvalid_q),
+    .axi_araddr(sh_ocl_araddr_q),
+    .axi_arready(ocl_sh_arready_q),
+    // AXI Master Read Data/Response
+    .axi_rvalid(ocl_sh_rvalid_q),
+    .axi_rdata(ocl_sh_rdata_q),
+    .axi_rresp(ocl_sh_rresp_q),
+    .axi_rready(sh_ocl_rready_q)
+  );
 
 // The register contains 16 read-only bits corresponding to 16 LED's.
 // For this example, the virtual LED register shadows the hello_world
@@ -309,9 +197,6 @@ always_ff @(posedge clk_main_a0)
    if (!rst_main_n_sync) begin                    // Reset
       vled_q[15:0] <= 16'h0000;
    end
-   else begin
-      vled_q[15:0] <= hello_world_q[15:0];
-   end
 
 // The Virtual LED outputs will be masked with the Virtual DIP switches.
 assign pre_cl_sh_status_vled[15:0] = vled_q[15:0] & sh_cl_status_vdip_q2[15:0];
@@ -321,7 +206,7 @@ assign pre_cl_sh_status_vled[15:0] = vled_q[15:0] & sh_cl_status_vdip_q2[15:0];
 //-------------------------------------------
 `ifndef CL_VERSION
    `define CL_VERSION 32'hee_ee_ee_00
-`endif  
+`endif
 
 
   assign cl_sh_status0[31:0] =  32'h0000_0FF0;
@@ -363,7 +248,7 @@ always_ff @(posedge clk_main_a0)
                    .probe5 (sh_ocl_rready_q)
                    );
 
-// Debug Bridge 
+// Debug Bridge
  cl_debug_bridge CL_DEBUG_BRIDGE (
       .clk(clk_main_a0),
       .S_BSCAN_VEC_drck(drck),
@@ -384,7 +269,7 @@ always_ff @(posedge clk_main_a0)
 // VIO Example - Needs Chipscope
 //-----------------------------------------------
    // Counter running at 125MHz
-   
+
    logic      vo_cnt_enable;
    logic      vo_cnt_load;
    logic      vo_cnt_clear;
@@ -405,7 +290,7 @@ always_ff @(posedge clk_main_a0)
    logic        vi_cnt_ge_watermark;
    logic [7:0]  vi_tick_cnt = 0;
    logic [15:0] vi_cnt = 0;
-   
+
    // Tick counter and main counter
    always @(posedge clk_main_a0) begin
 
@@ -431,9 +316,9 @@ always_ff @(posedge clk_main_a0)
       vi_tick = (vi_tick_cnt >= vo_tick_value_q);
 
       vi_cnt_ge_watermark = (vi_cnt >= vo_cnt_watermark_q);
-      
+
    end // always @ (posedge clk_main_a0)
-   
+
 
    vio_0 CL_VIO_0 (
                    .clk    (clk_main_a0),
@@ -449,7 +334,7 @@ always_ff @(posedge clk_main_a0)
                    .probe_out5 (vo_cnt_load_value),
                    .probe_out6 (vo_cnt_watermark)
                    );
-   
+
    ila_vio_counter CL_VIO_ILA (
                    .clk     (clk_main_a0),
                    .probe0  (vi_tick),
@@ -464,12 +349,8 @@ always_ff @(posedge clk_main_a0)
                    .probe9  (vo_cnt_load_value_q),
                    .probe10 (vo_cnt_watermark_q)
                    );
-   
+
 `endif //  `ifndef DISABLE_CHIPSCOPE_DEBUG
 
 endmodule
-
-
-
-
 
